@@ -1,29 +1,48 @@
 # Feature Flags and Canary Deployment Engine
 
-Projeto de portfólio Sênior para demonstrar desacoplamento entre deploy e release, targeting contextual na borda e auto-rollback autônomo orientado por telemetria. A versão atual foi elevada de demo técnica para uma experiência de produto com dashboard operacional premium, contratos de erro consistentes, hardening administrativo e cobertura de testes sobre os fluxos sensíveis.
+![Java](https://img.shields.io/badge/Java-21-red)
+![Node.js](https://img.shields.io/badge/Node.js-20-green)
+![.NET](https://img.shields.io/badge/.NET-8-purple)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Redis](https://img.shields.io/badge/Redis-7.2-red)
+![Docker](https://img.shields.io/badge/Docker-Ready-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## O que mudou nesta versão premium
+Senior portfolio project demonstrating decoupling between deployment and release, contextual targeting at the edge, and telemetry‑driven autonomous auto‑rollback. The current version elevates a technical demo into a product experience with a premium operational dashboard, consistent error contracts, administrative hardening, and test coverage over sensitive flows.
 
-- Dashboard operacional servido pelo control plane em `http://localhost:8081`, com visão unificada de flags, data plane, guardian, stable e canary.
-- APIs administrativas protegíveis por `X-Admin-Token` sem quebrar o fluxo local quando o token estiver em branco.
-- Control plane com Flyway, validações mais fortes, contratos de erro profissionais e endpoints de leitura/listagem.
-- Data plane modularizado, com readiness real, prévia de decisão na borda, request ids e endpoints internos protegidos.
-- Guardian com validação de configuração, telemetria enriquecida, histórico de probes e rollback resiliente a falhas externas.
-- Testes cobrindo avaliação de regras no Java, edge decision no Node e estado de telemetria no .NET.
+---
 
-## Por que a avaliação da flag acontece no Node.js e não no Java?
+## What Changed in This Premium Version
 
-O Java é o control plane: ele persiste, valida e propaga mudanças. O Node.js é o data plane: ele recebe o tráfego real e precisa responder em microssegundos, sem depender de banco e sem adicionar round-trip para cada request. Avaliar a flag na borda reduz latência, evita pressão no PostgreSQL e mantém o plano de decisão perto do pacote de rede. O Java publica snapshots no Redis; o Node assina Pub/Sub, mantém um `Map` em memória e continua roteando mesmo se o Redis oscilar, usando o último estado conhecido.
+- Operational dashboard served by the control plane at `http://localhost:8081`, providing a unified view of flags, data plane, guardian, stable, and canary.
+- Administrative APIs protected by `X-Admin-Token` without breaking the local flow when the token is empty.
+- Control plane with Flyway, stronger validations, professional error contracts, and read/list endpoints.
+- Modularised data plane with real readiness, edge decision preview, request IDs, and protected internal endpoints.
+- Guardian with configuration validation, enriched telemetry, probe history, and rollback resilient to external failures.
+- Tests covering rule evaluation in Java, edge decision in Node, and telemetry state in .NET.
 
-## Por que o auto-rollback está em .NET e não no Java ou no Node?
+---
 
-Rollback automático é um domínio de confiabilidade e precisa ficar isolado do domínio de entrega. Se o data plane ou o control plane estiverem degradados, o guardião não pode cair junto. O worker .NET opera como terceiro observador independente: mede `/health`, acumula falhas consecutivas, aciona rollback no Java e publica o evento crítico no Redis. Esse isolamento é intencional e espelha a forma como sistemas de SRE tratam mecanismos de proteção como circuit breakers organizacionais.
+## Why Flag Evaluation Happens in Node.js, Not Java
 
-## Canary Release vs Feature Flag Simples
+Java is the control plane: it persists, validates, and propagates changes.  
+Node.js is the data plane: it receives live traffic and must respond in microseconds without depending on a database or adding a round‑trip per request. Evaluating the flag at the edge reduces latency, avoids pressure on PostgreSQL, and keeps the decision plane close to the network packet. Java publishes snapshots to Redis; Node subscribes to Pub/Sub, maintains an in‑memory `Map`, and continues routing even if Redis fluctuates by using the last known state.
 
-Uma feature flag simples controla acesso a uma funcionalidade. Um canary release controla exposição progressiva de uma nova versão do serviço. Aqui os dois conceitos se encontram: a flag `new-checkout` decide se o request vai para `stable` ou `canary`, e o guardian pode reverter a exposição automaticamente quando a saúde do canário degrada.
+---
 
-## Arquitetura
+## Why Auto‑Rollback Lives in .NET, Not Java or Node
+
+Auto‑rollback is a reliability concern and must be isolated from the delivery domain. If the data plane or control plane degrades, the guardian cannot fail along with them. The .NET worker operates as an independent third observer: it measures `/health`, accumulates consecutive failures, triggers rollback in Java, and publishes the critical event to Redis. This isolation is intentional and mirrors how SRE systems treat protection mechanisms like organisational circuit breakers.
+
+---
+
+## Canary Release vs Feature Flag
+
+A simple feature flag controls access to a functionality. A canary release controls progressive exposure of a new service version. Here both concepts meet: the flag `new-checkout` decides whether a request goes to `stable` or `canary`, and the guardian can automatically revert exposure when canary health degrades.
+
+---
+
+## System Architecture
 
 ```mermaid
 flowchart LR
@@ -32,6 +51,8 @@ flowchart LR
     Java -->|publish snapshots| Redis["Redis 7.2 Pub/Sub + state"]
     Redis -->|updates| Node["Node 20 Data Plane"]
     User["User Traffic"] --> Node
+    Node -->|fallback read| Redis
+    Node -->|last known state| Mem["In‑memory Map"]
     Node -->|stable| Stable["app-stable"]
     Node -->|canary| Canary["app-canary"]
     Guardian[".NET 8 Guardian"] -->|GET /health| Stable
@@ -40,81 +61,104 @@ flowchart LR
     Guardian -->|critical event| Redis
 ```
 
-## Estrutura
+All components are containerised. The data plane remains operational even during transient Redis failures by serving decisions from its in‑memory cache (last known snapshot).
+
+---
+
+## Project Structure
 
 ```text
 .
-├── java-control-plane/
-├── node-data-plane/
-├── dotnet-guardian/
-├── dotnet-guardian.tests/
-├── app-stable/
-├── app-canary/
+├── java-control-plane/          # Core flag management (Java + Spring Boot)
+├── node-data-plane/             # Edge routing & targeting (Node.js + Express)
+├── dotnet-guardian/             # Autonomous health watcher (.NET 8)
+├── dotnet-guardian.tests/       # Unit tests for the guardian
+├── app-stable/                  # Stable version of the dummy checkout service
+├── app-canary/                  # Canary version of the dummy checkout service
 ├── docker-compose.yml
 └── README.md
 ```
 
-## Regras de targeting
+---
 
-Todas as regras de um mesmo `targetVersion` são avaliadas em conjunto com `AND`. A seed inicial cria a flag `new-checkout` com três regras `CANARY`:
+## Targeting Rules
+
+All rules for the same `targetVersion` are evaluated together with `AND`. The seed creates the flag `new-checkout` with three `CANARY` rules:
 
 1. `country == BR`
 2. `platform == iOS`
 3. `userId % 100 < 10`
 
-Isso significa que apenas usuários brasileiros de iOS que caiam no bucket percentual irão para a versão canário.
+This means only Brazilian iOS users falling into the percentage bucket will be routed to the canary version.
 
-## Subida do ambiente
+---
 
-```bash
-docker compose up --build
-```
+## Environment Variables
 
-Dashboard operacional:
-
-```text
-http://localhost:8081
-```
-
-Portas publicadas:
-
-- `8080`: Node data plane
-- `8081`: Java control plane
-- `8083`: .NET guardian
-- `8084`: app-stable
-- `8085`: app-canary
-- `5432`: PostgreSQL
-- `6379`: Redis
-
-## Segurança administrativa opcional
-
-Se quiser rodar o projeto em modo protegido, copie `.env.example` para `.env` e configure:
+Create a `.env` file from `.env.example` with the following variables:
 
 ```bash
-ADMIN_API_TOKEN=change-me-in-demo
+# PostgreSQL
+POSTGRES_DB=featureflags
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=changeme
+
+# Redis
+REDIS_URL=redis://redis:6379
+
+# Optional: administrative security token (empty = open mode)
+ADMIN_API_TOKEN=
+
+# Service ports (optional, defaults work)
+JAVA_CONTROL_PLANE_PORT=8081
+NODE_DATA_PLANE_PORT=8080
+DOTNET_GUARDIAN_PORT=8083
+APP_STABLE_PORT=8084
+APP_CANARY_PORT=8085
 ```
 
-Quando esse valor estiver presente:
+If `ADMIN_API_TOKEN` is set, all administrative endpoints require the `X-Admin-Token` header. When empty, the environment runs in open mode for easy local demonstration.
 
-- o dashboard pedirá o token antes de liberar operações;
-- `/api/admin/*` e `/api/platform/*` no Java exigirão `X-Admin-Token`;
-- os endpoints internos do data plane e os endpoints de simulação dos apps dummy também exigirão o token;
-- o guardian enviará automaticamente esse header ao acionar rollback no control plane.
+---
 
-Se o valor estiver vazio, o ambiente continua funcionando em modo aberto para facilitar demonstração local.
+## Quick Demo (3 steps)
 
-## Guia de teste passo a passo
+1. **Start the environment**
+   ```bash
+   docker compose up --build
+   ```
 
-### 0. Abrir o console premium
+2. **Open the operational dashboard**
+   ```
+   http://localhost:8081
+   ```
 
-Acesse `http://localhost:8081` e acompanhe:
+3. **Send a request that matches the canary bucket**
+   ```bash
+   curl http://localhost:8080/api/checkout \
+     -H "X-User-Context: userId=7,country=BR,platform=iOS"
+   ```
 
-- status do control plane, data plane, guardian, stable e canary;
-- catálogo de flags, regras e estado global de release;
-- laboratório de preview de roteamento na borda;
-- histórico de rollback do guardian.
+   Expected response (canary):
+   ```json
+   { "version": "canary", "checkout": "new amazing flow" }
+   ```
 
-### 1. Criar uma nova flag via Admin API Java
+For a complete walkthrough, see the **Step‑by‑Step Testing Guide** below.
+
+---
+
+## Step‑by‑Step Testing Guide
+
+### 0. Open the Premium Console
+
+Access `http://localhost:8081` and observe:
+- Status of control plane, data plane, guardian, stable, and canary
+- Flags catalogue, rules, and global release state
+- Edge routing preview lab
+- Guardian rollback history
+
+### 1. Create a New Flag via the Java Admin API
 
 ```bash
 curl -X POST http://localhost:8081/api/admin/flags \
@@ -123,13 +167,13 @@ curl -X POST http://localhost:8081/api/admin/flags \
   -d '{"key":"holiday-pricing","description":"Seasonal pricing experiment","enabled":false,"environmentName":"production"}'
 ```
 
-Se você estiver em modo aberto, o header `X-Admin-Token` pode ser omitido.
+In open mode, the `X-Admin-Token` header may be omitted.
 
-### 2. Ativar a flag seeded `new-checkout` para liberar o canário de 10%
+### 2. Enable the Seeded Flag `new-checkout` to Release the 10% Canary
 
-O ambiente sobe com a flag seeded desabilitada para evidenciar o desacoplamento entre deploy e release.
+The environment starts with the seeded flag disabled to highlight the decoupling between deploy and release.
 
-ID da flag seeded: `11111111-1111-1111-1111-111111111111`
+Seeded flag ID: `11111111-1111-1111-1111-111111111111`
 
 ```bash
 curl -X PUT http://localhost:8081/api/admin/flags/11111111-1111-1111-1111-111111111111/toggle \
@@ -138,126 +182,100 @@ curl -X PUT http://localhost:8081/api/admin/flags/11111111-1111-1111-1111-111111
   -d '{"enabled":true,"reason":"release 10% BR iOS canary"}'
 ```
 
-### 3. Provar o roteamento dinâmico pelo header `X-User-Context`
+### 3. Prove Dynamic Routing Using the `X-User-Context` Header
 
-Usuário brasileiro, iOS e bucket percentual abaixo de 10 vai para o canário:
+Brazilian iOS user inside the percentage bucket → canary:
 
 ```bash
 curl http://localhost:8080/api/checkout \
   -H "X-User-Context: userId=7,country=BR,platform=iOS"
 ```
 
-Resposta esperada:
-
-```json
-{
-  "version": "canary",
-  "checkout": "new amazing flow"
-}
-```
-
-Mesmo contexto, mas fora do bucket percentual, continua no estável:
+Outside the percentage bucket → stable:
 
 ```bash
 curl http://localhost:8080/api/checkout \
   -H "X-User-Context: userId=15,country=BR,platform=iOS"
 ```
 
-Resposta esperada:
-
-```json
-{
-  "version": "stable",
-  "checkout": "old flow"
-}
-```
-
-Bucket válido, mas país diferente, continua no estável:
+Different country → stable:
 
 ```bash
 curl http://localhost:8080/api/checkout \
   -H "X-User-Context: userId=7,country=US,platform=iOS"
 ```
 
-Bucket válido, mas plataforma diferente, continua no estável:
+Different platform → stable:
 
 ```bash
 curl http://localhost:8080/api/checkout \
   -H "X-User-Context: userId=7,country=BR,platform=Android"
 ```
 
-Para observar o caminho tomado:
+To observe the routing decision in real time:
 
 ```bash
 docker compose logs -f node-data-plane app-stable app-canary
 ```
 
-### 4. Simular falha no canário
+### 4. Simulate Canary Failure
 
 ```bash
 curl -X POST http://localhost:8085/admin/fail-health \
   -H "X-Admin-Token: $ADMIN_API_TOKEN"
 ```
 
-Agora acompanhe o guardião:
+Follow the guardian logs:
 
 ```bash
 docker compose logs -f dotnet-guardian
 ```
 
-Após três verificações consecutivas com `500`, o worker faz:
+After three consecutive `500` health checks, the worker will:
 
-1. `PUT /api/admin/flags/{id}/toggle` no Java com `enabled=false`
-2. `PUBLISH feature-flags:rollback` no Redis
-3. Registro do rollback no histórico exposto pela API de telemetria
+1. Call `PUT /api/admin/flags/{id}/toggle` on Java with `enabled=false`
+2. Publish `feature-flags:rollback` to Redis
+3. Record the rollback in the telemetry API history
 
-### 5. Provar o auto-rollback
+### 5. Prove Auto‑Rollback
 
-Repita o request que antes caía no canário:
+Repeat the request that previously went to canary:
 
 ```bash
 curl http://localhost:8080/api/checkout \
   -H "X-User-Context: userId=7,country=BR,platform=iOS"
 ```
 
-Mesmo para o bucket que antes ia para canário, a resposta passa a ser `stable` porque o guardian desligou a flag globalmente.
+Even for the bucket that used to hit canary, the response now becomes `stable` because the guardian has disabled the flag globally.
 
-### 6. Consultar estado do guardião
+### 6. Query Guardian Status
 
 ```bash
 curl http://localhost:8083/api/telemetry/status
 ```
 
-Exemplo de retorno:
+Example output:
 
 ```json
 {
   "flagKey": "new-checkout",
   "current": {
-    "stable": {
-      "statusCode": 200
-    },
-    "canary": {
-      "statusCode": 500
-    },
+    "stable": { "statusCode": 200 },
+    "canary": { "statusCode": 500 },
     "consecutiveCanaryFailures": 3,
-    "rollbackHistory": [
-      {
-        "action": "FORCED_STABLE_ROUTING"
-      }
-    ]
+    "rollbackHistory": [{ "action": "FORCED_STABLE_ROUTING" }]
   }
 }
 ```
 
-### 7. Recuperar o canário para novos testes
+### 7. Recover the Canary for Further Tests
 
 ```bash
 curl -X POST http://localhost:8085/admin/recover-health \
   -H "X-Admin-Token: $ADMIN_API_TOKEN"
 ```
 
-Se quiser reabrir a exposição, basta reativar a flag:
+To re‑enable canary exposure, simply toggle the flag back on:
 
 ```bash
 curl -X PUT http://localhost:8081/api/admin/flags/11111111-1111-1111-1111-111111111111/toggle \
@@ -266,55 +284,126 @@ curl -X PUT http://localhost:8081/api/admin/flags/11111111-1111-1111-1111-111111
   -d '{"enabled":true,"reason":"retry after canary recovery"}'
 ```
 
-## Endpoints principais
+---
 
-Control plane:
+## Main Endpoints
 
-- `GET /` dashboard operacional premium
-- `GET /api/admin/flags`
-- `GET /api/admin/flags/{id}`
+**Control Plane (Java)**
+- `GET  /` – operational dashboard
+- `GET  /api/admin/flags`
+- `GET  /api/admin/flags/{id}`
 - `POST /api/admin/flags`
-- `PUT /api/admin/flags/{id}/toggle`
+- `PUT  /api/admin/flags/{id}/toggle`
 - `POST /api/admin/flags/{id}/rules`
-- `GET /api/platform/overview`
+- `GET  /api/platform/overview`
 - `POST /api/platform/decision-preview`
 
-Data plane:
-
+**Data Plane (Node.js)**
 - `GET /health`
 - `GET /ready`
 - `GET /internal/flags`
 - `POST /internal/decision-preview`
 
-Guardian:
-
+**Guardian (.NET)**
 - `GET /health`
 - `GET /ready`
 - `GET /api/telemetry/status`
 
-## Qualidade local
+---
 
-Java:
+## Running the Environment
 
 ```bash
+docker compose up --build
+```
+
+Published ports:
+
+| Service               | Port |
+|-----------------------|------|
+| Node data plane       | 8080 |
+| Java control plane    | 8081 |
+| .NET guardian         | 8083 |
+| app-stable            | 8084 |
+| app-canary            | 8085 |
+| PostgreSQL            | 5432 |
+| Redis                 | 6379 |
+
+Operational dashboard: [http://localhost:8081](http://localhost:8081)
+
+---
+
+## Local Quality Checks
+
+**Java (control plane)**
+```bash
+cd java-control-plane
 mvn test
 ```
 
-Node data plane:
-
+**Node.js (data plane)**
 ```bash
+cd node-data-plane
 npm test
 ```
 
-.NET guardian:
-
+**.NET (guardian)**
 ```bash
 dotnet test dotnet-guardian.tests/dotnet-guardian.tests.csproj
 ```
 
-## Notas operacionais
+---
 
-- O PostgreSQL agora usa volume nomeado `postgres-data` para persistir o catálogo entre reinícios.
-- O schema do control plane é criado por Flyway e o Hibernate roda em modo `validate`.
-- O dashboard nunca depende do browser falar diretamente com Node ou .NET; o Java agrega a visão operacional e mantém o console same-origin.
-- O data plane continua obedecendo a restrição original: decisão em memória com Redis Pub/Sub, sem polling em banco.
+## Operational Notes
+
+- PostgreSQL uses a named volume `postgres-data` to persist the flag catalogue across restarts.
+- The control plane schema is managed by Flyway; Hibernate runs in `validate` mode.
+- The dashboard never requires the browser to talk directly to Node or .NET; Java aggregates the operational view and keeps the console same‑origin.
+- The data plane continues to obey the original restriction: in‑memory decision with Redis Pub/Sub, no polling to the database.
+- When Redis is unavailable, the data plane serves decisions from its last known snapshot (cache) and logs the fallback event.
+
+---
+
+## Current Limitations
+
+The Feature Flags and Canary Deployment Engine is a **portfolio‑grade demonstration** and is not intended for production use without further development. Known limitations include:
+
+- **Authentication/authorisation** – Only a simple admin token is supported. No OAuth2, SSO, or role‑based access control (RBAC).
+- **CI/CD pipeline** – No automated build, test, and deployment pipeline (e.g., GitHub Actions, GitLab CI).
+- **Observability** – No centralised logging, metrics collection (Prometheus), or distributed tracing (OpenTelemetry).
+- **Scalability** – The data plane does not support horizontal scaling out of the box (no shared‑nothing configuration or sticky sessions).
+- **Persistent storage for telemetry** – The guardian’s rollback history is kept in memory; a production system would require persistent audit logs.
+- **OpenAPI documentation** – No machine‑readable API specification is provided.
+
+---
+
+## Future Enhancements
+
+The following improvements are planned for subsequent iterations:
+
+- **CI/CD pipeline** (GitHub Actions) with automated tests, linting, and Docker image publishing.
+- **OAuth2 / OpenID Connect** integration (e.g., Auth0, Keycloak) for fine‑grained access control.
+- **Observability stack** – Prometheus metrics, Grafana dashboards, Loki logs, and Tempo traces.
+- **Horizontal scaling** for the data plane using a shared Redis state or consistent hashing.
+- **Dead Letter Queue (DLQ)** for failed audit events.
+- **OpenAPI / Swagger** specifications for all public APIs.
+- **Kubernetes deployment** manifests (Helm charts) for cloud‑native orchestration.
+- **End‑to‑end integration tests** using Testcontainers.
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) file for details.
+
+---
+
+## Purpose
+
+This project was developed to demonstrate:
+
+- Decoupling between deployment and release using feature flags and canary releases.
+- Low‑latency, edge‑based contextual targeting without database round‑trips.
+- Autonomous, telemetry‑driven rollback isolated from the delivery domain.
+- Polyglot microservices architecture with clear separation of concerns.
+- Production‑grade patterns (idempotency, health checks, fallback caching, operational dashboards).
