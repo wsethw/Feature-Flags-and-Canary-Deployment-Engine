@@ -9,4 +9,3 @@ public interface FeatureFlagJpaRepository extends JpaRepository<FeatureFlagEntit
 
     Optional<FeatureFlagEntity> findByFlagKey(String flagKey);
 }
-

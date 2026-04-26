@@ -3,9 +3,11 @@ package com.portfolio.controlplane.application.query;
 import com.portfolio.controlplane.application.exception.FeatureFlagNotFoundException;
 import com.portfolio.controlplane.application.port.FeatureFlagRepository;
 import com.portfolio.controlplane.domain.model.FeatureFlag;
+import org.eclipse.jdt.annotation.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -18,15 +20,16 @@ public class GetFeatureFlagQuery {
     }
 
     @Transactional(readOnly = true)
-    public FeatureFlag byId(UUID flagId) {
-        return featureFlagRepository.findById(flagId)
-                .orElseThrow(() -> new FeatureFlagNotFoundException(flagId));
+    public @NonNull FeatureFlag byId(@NonNull UUID flagId) {
+        UUID safeFlagId = Objects.requireNonNull(flagId);
+        return featureFlagRepository.findById(safeFlagId)
+                .orElseThrow(() -> new FeatureFlagNotFoundException(safeFlagId));
     }
 
     @Transactional(readOnly = true)
-    public FeatureFlag byKey(String key) {
-        return featureFlagRepository.findByKey(key)
-                .orElseThrow(() -> new FeatureFlagNotFoundException(key));
+    public @NonNull FeatureFlag byKey(@NonNull String key) {
+        String safeKey = Objects.requireNonNull(key);
+        return featureFlagRepository.findByKey(safeKey)
+                .orElseThrow(() -> new FeatureFlagNotFoundException(safeKey));
     }
 }
-

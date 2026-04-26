@@ -10,4 +10,5 @@ COPY server.js .
 
 EXPOSE 8080
 
+USER node
 CMD ["npm", "start"]

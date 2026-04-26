@@ -53,23 +53,59 @@ function api(path, options = {}) {
   });
 }
 
+function createElement(tagName, options = {}, children = []) {
+  const element = document.createElement(tagName);
+
+  if (options.className) {
+    element.className = options.className;
+  }
+  if (options.text !== undefined) {
+    element.textContent = String(options.text);
+  }
+  if (options.attributes) {
+    Object.entries(options.attributes).forEach(([name, value]) => {
+      element.setAttribute(name, String(value));
+    });
+  }
+  if (options.dataset) {
+    Object.entries(options.dataset).forEach(([name, value]) => {
+      element.dataset[name] = String(value);
+    });
+  }
+
+  children.forEach((child) => {
+    if (child) {
+      element.appendChild(child);
+    }
+  });
+
+  return element;
+}
+
+function replaceWithMessage(container, className, message) {
+  container.replaceChildren(createElement("div", { className, text: message }));
+}
+
 function showToast(title, message, tone = "default") {
-  const toast = document.createElement("div");
-  toast.className = "toast";
+  const toast = createElement("div", { className: "toast" }, [
+    createElement("strong", { text: title }),
+    createElement("span", { text: message })
+  ]);
+
   if (tone === "error") {
     toast.style.borderColor = "rgba(255, 123, 114, 0.38)";
   }
   if (tone === "success") {
     toast.style.borderColor = "rgba(105, 230, 197, 0.38)";
   }
-  toast.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+
   elements.toastHost.appendChild(toast);
   setTimeout(() => toast.remove(), 4200);
 }
 
 function statusPillClass(status) {
   const normalized = String(status || "").toUpperCase();
-  if (normalized === "UP") {
+  if (normalized === "UP" || normalized === "READY") {
     return "pill pill-success";
   }
   if (normalized === "UNREACHABLE" || normalized === "DOWN") {
@@ -83,13 +119,13 @@ function renderOverview() {
     return;
   }
 
-  const { flags, guardianTelemetry } = state.overview;
+  const flags = Array.isArray(state.overview.flags) ? state.overview.flags : [];
+  const { guardianTelemetry } = state.overview;
   elements.metricFlagCount.textContent = String(flags.length);
   elements.metricCanaryFailures.textContent =
     String(guardianTelemetry?.current?.consecutiveCanaryFailures ?? 0);
   elements.metricPreviewTarget.textContent = state.latestPreview?.targetVersion || "--";
-  elements.flagsCaption.textContent =
-    `${flags.length} flag(s) under active management`;
+  elements.flagsCaption.textContent = `${flags.length} flag(s) under active management`;
 
   const cards = [
     state.overview.controlPlane,
@@ -99,121 +135,158 @@ function renderOverview() {
     state.overview.canary
   ];
 
-  elements.overviewGrid.innerHTML = cards
-    .map((component) => {
-      const details = Object.entries(component.details || {})
-        .slice(0, 4)
-        .map(([key, value]) => `<div><strong>${key}</strong><span>${formatValue(value)}</span></div>`)
-        .join("");
-
-      return `
-        <article class="status-card">
-          <div class="status-meta">
-            <span>${component.name}</span>
-            <span class="${statusPillClass(component.status)}">${component.status}</span>
-          </div>
-          <h3>${component.name.replace("-", " ")}</h3>
-          <strong>${component.reachable ? "Reachable" : "Attention required"}</strong>
-          <div class="status-details">${details || "<span>No telemetry details available.</span>"}</div>
-        </article>
-      `;
-    })
-    .join("");
-
+  elements.overviewGrid.replaceChildren(...cards.map(renderStatusCard));
   renderFlags(flags);
   renderGuardianTelemetry(guardianTelemetry);
   renderRuleFlagOptions(flags);
   updateSecurityBadge();
 }
 
+function renderStatusCard(component = {}) {
+  const details = Object.entries(component.details || {})
+    .slice(0, 4)
+    .map(([key, value]) => createElement("div", {}, [
+      createElement("strong", { text: key }),
+      createElement("span", { text: formatValue(value) })
+    ]));
+
+  const detailsContainer = createElement("div", { className: "status-details" });
+  if (details.length) {
+    detailsContainer.replaceChildren(...details);
+  } else {
+    detailsContainer.replaceChildren(createElement("span", { text: "No telemetry details available." }));
+  }
+
+  const name = component.name || "unknown";
+  return createElement("article", { className: "status-card" }, [
+    createElement("div", { className: "status-meta" }, [
+      createElement("span", { text: name }),
+      createElement("span", { className: statusPillClass(component.status), text: component.status || "UNKNOWN" })
+    ]),
+    createElement("h3", { text: name.replace("-", " ") }),
+    createElement("strong", { text: component.reachable ? "Reachable" : "Attention required" }),
+    detailsContainer
+  ]);
+}
+
 function renderFlags(flags) {
   if (!flags.length) {
-    elements.flagsList.innerHTML = `
-      <div class="empty-state">
-        No feature flags were found. Create the first one from the panel on the right.
-      </div>
-    `;
+    replaceWithMessage(
+      elements.flagsList,
+      "empty-state",
+      "No feature flags were found. Create the first one from the panel on the right."
+    );
     return;
   }
 
-  elements.flagsList.innerHTML = flags
-    .map((flag) => `
-      <article class="flag-card">
-        <div class="flag-header">
-          <div>
-            <h3 class="flag-title">${flag.key}</h3>
-            <p class="flag-description">${flag.description}</p>
-          </div>
-          <span class="${flag.enabled ? "pill pill-success" : "pill pill-muted"}">
-            ${flag.enabled ? "Enabled" : "Disabled"}
-          </span>
-        </div>
-        <div class="badge-row">
-          <span class="badge pill-muted">${flag.environmentName}</span>
-          <span class="badge pill-muted">${flag.rules.length} rule(s)</span>
-        </div>
-        <div class="badge-row">
-          ${flag.rules.map((rule) => `<span class="badge pill">${rule.attribute} ${rule.operator} ${rule.value} → ${rule.targetVersion}</span>`).join("") || '<span class="badge pill-muted">No targeting rules yet</span>'}
-        </div>
-        <div class="flag-actions">
-          <span class="muted">ID ${flag.id}</span>
-          <button class="button button-secondary" type="button" data-action="toggle" data-flag-id="${flag.id}" data-next-state="${!flag.enabled}">
-            ${flag.enabled ? "Disable" : "Enable"}
-          </button>
-        </div>
-      </article>
-    `)
-    .join("");
+  elements.flagsList.replaceChildren(...flags.map(renderFlagCard));
+}
+
+function renderFlagCard(flag) {
+  const rules = Array.isArray(flag.rules) ? flag.rules : [];
+  const ruleBadges = rules.length
+    ? rules.map((rule) => createElement("span", {
+      className: "badge pill",
+      text: `${rule.attribute} ${rule.operator} ${rule.value} -> ${rule.targetVersion}`
+    }))
+    : [createElement("span", { className: "badge pill-muted", text: "No targeting rules yet" })];
+
+  return createElement("article", { className: "flag-card" }, [
+    createElement("div", { className: "flag-header" }, [
+      createElement("div", {}, [
+        createElement("h3", { className: "flag-title", text: flag.key }),
+        createElement("p", { className: "flag-description", text: flag.description })
+      ]),
+      createElement("span", {
+        className: flag.enabled ? "pill pill-success" : "pill pill-muted",
+        text: flag.enabled ? "Enabled" : "Disabled"
+      })
+    ]),
+    createElement("div", { className: "badge-row" }, [
+      createElement("span", { className: "badge pill-muted", text: flag.environmentName }),
+      createElement("span", { className: "badge pill-muted", text: `${rules.length} rule(s)` })
+    ]),
+    createElement("div", { className: "badge-row" }, ruleBadges),
+    createElement("div", { className: "flag-actions" }, [
+      createElement("span", { className: "muted", text: `ID ${flag.id}` }),
+      createElement("button", {
+        className: "button button-secondary",
+        text: flag.enabled ? "Disable" : "Enable",
+        attributes: { type: "button" },
+        dataset: {
+          action: "toggle",
+          flagId: flag.id,
+          nextState: !flag.enabled
+        }
+      })
+    ])
+  ]);
 }
 
 function renderRuleFlagOptions(flags) {
-  elements.ruleFlagId.innerHTML = flags
-    .map((flag) => `<option value="${flag.id}">${flag.key}</option>`)
-    .join("");
+  if (!flags.length) {
+    elements.ruleFlagId.replaceChildren(createElement("option", {
+      text: "No flags available",
+      attributes: { value: "" }
+    }));
+    return;
+  }
+
+  elements.ruleFlagId.replaceChildren(...flags.map((flag) =>
+    createElement("option", { text: flag.key, attributes: { value: flag.id } })
+  ));
 }
 
 function renderGuardianTelemetry(guardianTelemetry) {
   if (!guardianTelemetry?.current) {
-    elements.guardianPanel.innerHTML = `
-      <div class="error-state">Guardian telemetry could not be loaded.</div>
-    `;
+    replaceWithMessage(elements.guardianPanel, "error-state", "Guardian telemetry could not be loaded.");
     return;
   }
 
   const current = guardianTelemetry.current;
-  const rollbackHistory = current.rollbackHistory || [];
+  const rollbackHistory = Array.isArray(current.rollbackHistory) ? current.rollbackHistory : [];
+  const contentGrid = createElement("div", { className: "content-grid" }, [
+    renderProbeCard("Stable target", current.stable),
+    renderProbeCard("Canary target", current.canary)
+  ]);
 
-  elements.guardianPanel.innerHTML = `
-    <div class="content-grid">
-      <div class="probe-card">
-        <strong>Stable target</strong>
-        <span>Status code ${current.stable?.statusCode ?? "--"} at ${formatValue(current.stable?.checkedAt)}</span>
-      </div>
-      <div class="probe-card">
-        <strong>Canary target</strong>
-        <span>Status code ${current.canary?.statusCode ?? "--"} at ${formatValue(current.canary?.checkedAt)}</span>
-      </div>
-    </div>
-    ${rollbackHistory.length ? rollbackHistory.map((entry) => `
-      <div class="rollback-item">
-        <strong>${entry.action}</strong>
-        <span>${entry.reason}</span>
-        <div class="muted">${formatValue(entry.triggeredAt)}</div>
-      </div>
-    `).join("") : '<div class="empty-state">No rollback events recorded yet.</div>'}
-  `;
+  const historyNodes = rollbackHistory.length
+    ? rollbackHistory.map(renderRollbackItem)
+    : [createElement("div", { className: "empty-state", text: "No rollback events recorded yet." })];
+
+  elements.guardianPanel.replaceChildren(contentGrid, ...historyNodes);
+}
+
+function renderProbeCard(title, probe) {
+  return createElement("div", { className: "probe-card" }, [
+    createElement("strong", { text: title }),
+    createElement("span", {
+      text: `Status code ${probe?.statusCode ?? "--"} at ${formatValue(probe?.checkedAt)}`
+    })
+  ]);
+}
+
+function renderRollbackItem(entry) {
+  return createElement("div", { className: "rollback-item" }, [
+    createElement("strong", { text: entry.action || "ROLLBACK_EVENT" }),
+    createElement("span", { text: entry.reason || "No reason supplied" }),
+    createElement("div", { className: "muted", text: formatValue(entry.triggeredAt) })
+  ]);
 }
 
 function formatValue(value) {
-  if (Array.isArray(value)) {
-    return value.join(", ");
+  if (value === undefined || value === null || value === "") {
+    return "--";
   }
-  if (value && typeof value === "object") {
+  if (Array.isArray(value)) {
+    return value.map(formatValue).join(", ");
+  }
+  if (typeof value === "object") {
     return Object.entries(value)
-      .map(([key, inner]) => `${key}:${typeof inner === "object" ? JSON.stringify(inner) : inner}`)
+      .map(([key, inner]) => `${key}:${typeof inner === "object" ? JSON.stringify(inner) : formatValue(inner)}`)
       .join(" | ");
   }
-  return value ?? "--";
+  return String(value);
 }
 
 async function loadOverview() {
@@ -227,12 +300,16 @@ async function loadOverview() {
       elements.authPanel.classList.remove("hidden");
       updateSecurityBadge(true);
       if (!state.overview) {
-        elements.flagsList.innerHTML = '<div class="error-state">Unlock the admin surface to view operational state.</div>';
+        replaceWithMessage(
+          elements.flagsList,
+          "error-state",
+          "Unlock the admin surface to view operational state."
+        );
       }
       return;
     }
 
-    elements.flagsList.innerHTML = `<div class="error-state">${error.message}</div>`;
+    replaceWithMessage(elements.flagsList, "error-state", error.message);
     showToast("Refresh failed", error.message, "error");
   }
 }
@@ -329,12 +406,16 @@ async function handlePreview(event) {
       })
     });
 
+    const contextSummary = Object.entries(preview.context || {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join(", ");
+
     state.latestPreview = preview;
-    elements.previewResult.innerHTML = `
-      <strong>${preview.targetVersion}</strong>
-      <div>Reason: ${preview.reason}</div>
-      <div class="muted">Context: ${Object.entries(preview.context || {}).map(([key, value]) => `${key}=${value}`).join(", ")}</div>
-    `;
+    elements.previewResult.replaceChildren(
+      createElement("strong", { text: preview.targetVersion }),
+      createElement("div", { text: `Reason: ${preview.reason}` }),
+      createElement("div", { className: "muted", text: `Context: ${contextSummary}` })
+    );
     showToast("Preview ready", "Edge routing decision calculated successfully.", "success");
     renderOverview();
   } catch (error) {

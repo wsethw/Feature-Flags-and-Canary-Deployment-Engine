@@ -9,9 +9,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import org.eclipse.jdt.annotation.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -42,42 +44,51 @@ public class FeatureFlagEntity {
     }
 
     public FeatureFlagEntity(
-            UUID id,
-            String flagKey,
-            String description,
+            @NonNull UUID id,
+            @NonNull String flagKey,
+            @NonNull String description,
             boolean enabled,
-            String environmentName,
-            List<TargetingRuleEmbeddable> rules
+            @NonNull String environmentName,
+            @NonNull List<@NonNull TargetingRuleEmbeddable> rules
     ) {
-        this.id = id;
-        this.flagKey = flagKey;
-        this.description = description;
+        this.id = Objects.requireNonNull(id, "Feature flag entity id must not be null");
+        this.flagKey = Objects.requireNonNull(flagKey, "Feature flag entity key must not be null");
+        this.description = Objects.requireNonNull(description, "Feature flag entity description must not be null");
         this.enabled = enabled;
-        this.environmentName = environmentName;
+        this.environmentName = Objects.requireNonNull(environmentName, "Feature flag entity environment must not be null");
         this.rules = new ArrayList<>(rules);
     }
 
-    public UUID getId() {
-        return id;
+    public @NonNull UUID getId() {
+        return requireLoaded(id, "id");
     }
 
-    public String getFlagKey() {
-        return flagKey;
+    public @NonNull String getFlagKey() {
+        return requireLoaded(flagKey, "flagKey");
     }
 
-    public String getDescription() {
-        return description;
+    public @NonNull String getDescription() {
+        return requireLoaded(description, "description");
     }
 
     public boolean isEnabled() {
         return enabled;
     }
 
-    public String getEnvironmentName() {
-        return environmentName;
+    public @NonNull String getEnvironmentName() {
+        return requireLoaded(environmentName, "environmentName");
     }
 
-    public List<TargetingRuleEmbeddable> getRules() {
-        return rules;
+    public @NonNull List<@NonNull TargetingRuleEmbeddable> getRules() {
+        List<TargetingRuleEmbeddable> loadedRules = rules == null ? List.of() : rules;
+        List<@NonNull TargetingRuleEmbeddable> safeRules = new ArrayList<>();
+        for (TargetingRuleEmbeddable rule : loadedRules) {
+            safeRules.add(requireLoaded(rule, "rules[]"));
+        }
+        return List.copyOf(safeRules);
+    }
+
+    private static <T> @NonNull T requireLoaded(T value, String fieldName) {
+        return Objects.requireNonNull(value, "FeatureFlagEntity." + fieldName + " must be loaded");
     }
 }

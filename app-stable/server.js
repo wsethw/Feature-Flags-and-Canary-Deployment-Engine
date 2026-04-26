@@ -8,7 +8,7 @@ const ADMIN_TOKEN = process.env.SIMULATION_ADMIN_TOKEN || "";
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json());
+app.use(express.json({ limit: "16kb" }));
 
 let healthFailure = false;
 
@@ -23,8 +23,18 @@ function log(message, details = {}) {
   );
 }
 
+function tokensMatch(configuredToken, presentedToken) {
+  if (!presentedToken) {
+    return false;
+  }
+
+  const configured = Buffer.from(configuredToken);
+  const presented = Buffer.from(presentedToken);
+  return configured.length === presented.length && crypto.timingSafeEqual(configured, presented);
+}
+
 function requireAdmin(request, response, next) {
-  if (!ADMIN_TOKEN || request.header("X-Admin-Token") === ADMIN_TOKEN) {
+  if (!ADMIN_TOKEN || tokensMatch(ADMIN_TOKEN, request.header("X-Admin-Token"))) {
     return next();
   }
 
@@ -95,6 +105,12 @@ app.all("*", (request, response) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   log("backend-started", { port: PORT, version: VERSION });
+});
+
+process.on("SIGTERM", () => {
+  server.close(() => {
+    log("backend-stopped", { version: VERSION });
+  });
 });

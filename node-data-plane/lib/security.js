@@ -1,10 +1,22 @@
+const crypto = require("node:crypto");
+
+function tokensMatch(configuredToken, presentedToken) {
+  if (!presentedToken) {
+    return false;
+  }
+
+  const configured = Buffer.from(configuredToken);
+  const presented = Buffer.from(presentedToken);
+  return configured.length === presented.length && crypto.timingSafeEqual(configured, presented);
+}
+
 function createAdminGuard(adminApiToken) {
   return function adminGuard(request, response, next) {
     if (!adminApiToken) {
       return next();
     }
 
-    if (request.header("X-Admin-Token") === adminApiToken) {
+    if (tokensMatch(adminApiToken, request.header("X-Admin-Token"))) {
       return next();
     }
 
@@ -17,6 +29,6 @@ function createAdminGuard(adminApiToken) {
 }
 
 module.exports = {
-  createAdminGuard
+  createAdminGuard,
+  tokensMatch
 };
-

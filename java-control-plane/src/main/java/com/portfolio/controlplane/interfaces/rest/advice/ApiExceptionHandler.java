@@ -5,6 +5,8 @@ import com.portfolio.controlplane.application.exception.FeatureFlagNotFoundExcep
 import com.portfolio.controlplane.application.exception.ExternalDependencyException;
 import com.portfolio.controlplane.infrastructure.security.RequestCorrelationFilter;
 import jakarta.servlet.http.HttpServletRequest;
+import org.eclipse.jdt.annotation.NonNull;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -24,7 +26,7 @@ public class ApiExceptionHandler {
             FeatureFlagNotFoundException exception,
             HttpServletRequest request
     ) {
-        return buildResponse(HttpStatus.NOT_FOUND, exception.getMessage(), Map.of(), request);
+        return buildResponse(HttpStatus.NOT_FOUND, safeMessage(exception, "Feature flag was not found."), Map.of(), request);
     }
 
     @ExceptionHandler(FeatureFlagAlreadyExistsException.class)
@@ -32,7 +34,20 @@ public class ApiExceptionHandler {
             FeatureFlagAlreadyExistsException exception,
             HttpServletRequest request
     ) {
-        return buildResponse(HttpStatus.CONFLICT, exception.getMessage(), Map.of(), request);
+        return buildResponse(HttpStatus.CONFLICT, safeMessage(exception, "Feature flag already exists."), Map.of(), request);
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataIntegrityViolation(
+            DataIntegrityViolationException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(
+                HttpStatus.CONFLICT,
+                "The request conflicts with existing persisted state.",
+                Map.of("exception", exception.getClass().getSimpleName()),
+                request
+        );
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -55,7 +70,7 @@ public class ApiExceptionHandler {
             IllegalArgumentException exception,
             HttpServletRequest request
     ) {
-        return buildResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), Map.of(), request);
+        return buildResponse(HttpStatus.BAD_REQUEST, safeMessage(exception, "Invalid request."), Map.of(), request);
     }
 
     @ExceptionHandler(ExternalDependencyException.class)
@@ -66,7 +81,7 @@ public class ApiExceptionHandler {
         return buildResponse(
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "A required platform component is temporarily unavailable.",
-                Map.of("dependency", exception.getMessage()),
+                Map.of("dependency", safeMessage(exception, "External dependency failure")),
                 request
         );
     }
@@ -85,18 +100,25 @@ public class ApiExceptionHandler {
     }
 
     private ResponseEntity<ApiErrorResponse> buildResponse(
-            HttpStatus status,
-            String message,
-            Map<String, Object> details,
-            HttpServletRequest request
+            @NonNull HttpStatus status,
+            @NonNull String message,
+            @NonNull Map<String, Object> details,
+            @NonNull HttpServletRequest request
     ) {
-        return ResponseEntity.status(status).body(new ApiErrorResponse(
+        int statusCode = status.value();
+        ApiErrorResponse body = new ApiErrorResponse(
                 Instant.now(),
-                status.value(),
+                statusCode,
                 status.getReasonPhrase(),
                 message,
-                request.getHeader(RequestCorrelationFilter.REQUEST_ID_HEADER),
+                RequestCorrelationFilter.getRequestId(request),
                 details
-        ));
+        );
+        return ResponseEntity.status(statusCode).body(body);
+    }
+
+    private static @NonNull String safeMessage(@NonNull Exception exception, @NonNull String fallback) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? fallback : message;
     }
 }

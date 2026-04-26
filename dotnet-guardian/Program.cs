@@ -33,12 +33,26 @@ app.MapGet("/health", () => Results.Ok(new
     service = "dotnet-guardian"
 }));
 
-app.MapGet("/ready", (TelemetryState telemetryState) =>
+app.MapGet("/ready", (TelemetryState telemetryState, IConnectionMultiplexer redis) =>
 {
-    var ready = telemetryState.HasCompletedInitialProbe();
+    var ready = telemetryState.HasCompletedInitialProbe() && redis.IsConnected;
     return ready
-        ? Results.Ok(new { status = "READY", service = "dotnet-guardian" })
-        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        ? Results.Ok(new
+        {
+            status = "READY",
+            service = "dotnet-guardian",
+            redisConnected = redis.IsConnected,
+            initialProbeCompleted = telemetryState.HasCompletedInitialProbe()
+        })
+        : Results.Json(
+            new
+            {
+                status = "WAITING_FOR_PROBES_OR_REDIS",
+                service = "dotnet-guardian",
+                redisConnected = redis.IsConnected,
+                initialProbeCompleted = telemetryState.HasCompletedInitialProbe()
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
 app.MapGet("/api/telemetry/status", (TelemetryState telemetryState, IOptions<GuardianOptions> options) =>

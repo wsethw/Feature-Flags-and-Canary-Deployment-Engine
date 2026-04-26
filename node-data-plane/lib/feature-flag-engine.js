@@ -1,15 +1,31 @@
 function stableBucket(candidate) {
-  const numeric = Number.parseInt(candidate, 10);
-  if (!Number.isNaN(numeric)) {
-    return Math.abs(numeric % 100);
+  const normalized = String(candidate === undefined || candidate === null ? "" : candidate).trim();
+  if (/^[+-]?\d+$/.test(normalized)) {
+    const numeric = BigInt(normalized);
+    const longMin = -9223372036854775808n;
+    const longMax = 9223372036854775807n;
+    if (numeric >= longMin && numeric <= longMax) {
+      const remainder = numeric % 100n;
+      return Number((remainder + 100n) % 100n);
+    }
   }
 
   let hash = 0;
-  for (let index = 0; index < candidate.length; index += 1) {
-    hash = (hash << 5) - hash + candidate.charCodeAt(index);
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash << 5) - hash + normalized.charCodeAt(index);
     hash |= 0;
   }
-  return Math.abs(hash % 100);
+  return ((hash % 100) + 100) % 100;
+}
+
+function parsePercentage(value) {
+  const normalized = String(value === undefined || value === null ? "" : value).trim();
+  if (!/^\d+$/.test(normalized)) {
+    return null;
+  }
+
+  const percentage = Number.parseInt(normalized, 10);
+  return percentage >= 0 && percentage <= 100 ? percentage : null;
 }
 
 function describeRule(rule) {
@@ -18,20 +34,24 @@ function describeRule(rule) {
 
 function matchesRule(rule, context) {
   const currentValue = context[rule.attribute];
-  if (!currentValue) {
+  if (currentValue === undefined || currentValue === null || String(currentValue).trim() === "") {
     return false;
   }
 
+  const normalizedValue = String(currentValue).trim();
+
   switch (rule.operator) {
     case "EQUALS":
-      return currentValue.toLowerCase() === String(rule.value).trim().toLowerCase();
+      return normalizedValue.toLowerCase() === String(rule.value).trim().toLowerCase();
     case "IN":
       return String(rule.value)
         .split(",")
         .map((item) => item.trim().toLowerCase())
-        .includes(currentValue.toLowerCase());
-    case "PERCENTAGE":
-      return stableBucket(currentValue) < Number.parseInt(rule.value, 10);
+        .includes(normalizedValue.toLowerCase());
+    case "PERCENTAGE": {
+      const percentage = parsePercentage(rule.value);
+      return percentage !== null && stableBucket(normalizedValue) < percentage;
+    }
     default:
       return false;
   }
@@ -93,4 +113,3 @@ module.exports = {
   matchesRule,
   stableBucket
 };
-

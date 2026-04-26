@@ -7,6 +7,19 @@ test("stableBucket is deterministic for numeric identifiers", () => {
   assert.equal(stableBucket("107"), 7);
 });
 
+test("stableBucket matches Java floor modulo for negative numeric identifiers", () => {
+  assert.equal(stableBucket("-1"), 99);
+  assert.equal(stableBucket("-101"), 99);
+});
+
+test("stableBucket matches Java hash buckets for negative hash values", () => {
+  assert.equal(stableBucket("polygenelubricants"), 52);
+});
+
+test("stableBucket hashes numeric strings outside Java long range", () => {
+  assert.equal(stableBucket("9223372036854775808"), 3);
+});
+
 test("matchesRule evaluates percentage buckets", () => {
   assert.equal(matchesRule({
     attribute: "userId",
@@ -16,6 +29,17 @@ test("matchesRule evaluates percentage buckets", () => {
   }, {
     userId: "7"
   }), true);
+});
+
+test("matchesRule rejects invalid percentage configuration", () => {
+  assert.equal(matchesRule({
+    attribute: "userId",
+    operator: "PERCENTAGE",
+    value: "101",
+    targetVersion: "CANARY"
+  }, {
+    userId: "7"
+  }), false);
 });
 
 test("evaluateFlag routes matching context to canary", () => {

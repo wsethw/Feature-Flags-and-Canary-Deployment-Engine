@@ -5,5 +5,8 @@ public class FeatureFlagAlreadyExistsException extends RuntimeException {
     public FeatureFlagAlreadyExistsException(String key) {
         super("A feature flag with key '%s' already exists.".formatted(key));
     }
-}
 
+    public FeatureFlagAlreadyExistsException(String key, Throwable cause) {
+        super("A feature flag with key '%s' already exists.".formatted(key), cause);
+    }
+}

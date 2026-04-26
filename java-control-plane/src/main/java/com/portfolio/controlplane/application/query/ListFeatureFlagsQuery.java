@@ -2,6 +2,7 @@ package com.portfolio.controlplane.application.query;
 
 import com.portfolio.controlplane.application.port.FeatureFlagRepository;
 import com.portfolio.controlplane.domain.model.FeatureFlag;
+import org.eclipse.jdt.annotation.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,10 +19,9 @@ public class ListFeatureFlagsQuery {
     }
 
     @Transactional(readOnly = true)
-    public List<FeatureFlag> execute() {
+    public @NonNull List<@NonNull FeatureFlag> execute() {
         return featureFlagRepository.findAll().stream()
                 .sorted(Comparator.comparing(FeatureFlag::getEnvironmentName).thenComparing(FeatureFlag::getKey))
                 .toList();
     }
 }
-

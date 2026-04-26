@@ -4,7 +4,14 @@ bin/
 obj/
 .idea/
 .vscode/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.crt
 *.user
 *.suo
 *.swp
-
+coverage/

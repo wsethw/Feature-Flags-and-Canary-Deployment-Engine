@@ -22,6 +22,10 @@ test("parseUserContext supports JSON payloads", () => {
   });
 });
 
+test("parseUserContext rejects oversized headers", () => {
+  assert.throws(() => parseUserContext(`userId=${"x".repeat(2049)}`), /too large/);
+});
+
 test("normalizeContext trims values and removes empties", () => {
   assert.deepEqual(normalizeContext({
     userId: " 13 ",
@@ -42,4 +46,3 @@ test("maskContextForLogs redacts user id", () => {
     country: "BR"
   });
 });
-

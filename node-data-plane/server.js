@@ -7,6 +7,10 @@ const config = require("./lib/config");
 const { createLogger } = require("./lib/logger");
 const { parseUserContext, normalizeContext, maskContextForLogs } = require("./lib/context");
 const { evaluateFlag } = require("./lib/feature-flag-engine");
+const {
+  buildHealthPayload: buildRuntimeHealthPayload,
+  isReady
+} = require("./lib/runtime-readiness");
 const { createAdminGuard } = require("./lib/security");
 
 const logger = createLogger(config.serviceName);
@@ -14,6 +18,7 @@ const app = express();
 const adminGuard = createAdminGuard(config.adminApiToken);
 
 app.disable("x-powered-by");
+app.use(createRequestContext);
 app.use(express.json({ limit: "32kb" }));
 
 const flagCache = new Map();
@@ -23,12 +28,14 @@ const runtime = {
   redisSubscriberReady: false,
   cacheHydrated: false,
   lastCacheHydratedAt: null,
+  lastCacheHydrationError: null,
   lastEventAt: null,
-  subscriptionsRegistered: false
+  subscriptionsRegistered: false,
+  startupComplete: false
 };
 
 const redisOptions = {
-  lazyConnect: false,
+  lazyConnect: true,
   maxRetriesPerRequest: null,
   enableReadyCheck: true
 };
@@ -56,31 +63,55 @@ function upsertFlag(snapshot, source) {
 }
 
 async function hydrateCacheFromRedis() {
-  const stateKeys = await redis.smembers(config.redisStateIndexKey);
-  if (!stateKeys.length) {
-    runtime.cacheHydrated = true;
-    runtime.lastCacheHydratedAt = new Date().toISOString();
-    log("cache-hydrated", { cachedFlags: [] });
-    return;
-  }
+  runtime.cacheHydrated = false;
+  runtime.lastCacheHydrationError = null;
 
-  const pipeline = redis.pipeline();
-  stateKeys.forEach((stateKey) => pipeline.get(stateKey));
-  const results = await pipeline.exec();
-
-  results.forEach(([error, payload]) => {
-    if (error || !payload) {
+  try {
+    const stateKeys = await redis.smembers(config.redisStateIndexKey);
+    if (!stateKeys.length) {
+      runtime.cacheHydrated = true;
+      runtime.lastCacheHydratedAt = new Date().toISOString();
+      log("cache-hydrated", { cachedFlags: [] });
       return;
     }
-    const snapshot = JSON.parse(payload);
-    flagCache.set(snapshot.key, snapshot);
-  });
 
-  runtime.cacheHydrated = true;
-  runtime.lastCacheHydratedAt = new Date().toISOString();
-  log("cache-hydrated", {
-    cachedFlags: Array.from(flagCache.keys())
-  });
+    const pipeline = redis.pipeline();
+    stateKeys.forEach((stateKey) => pipeline.get(stateKey));
+    const results = await pipeline.exec();
+
+    results.forEach(([error, payload], index) => {
+      if (error || !payload) {
+        if (error) {
+          logger.warn("cache-entry-read-failed", {
+            stateKey: stateKeys[index],
+            error: error.message
+          });
+        }
+        return;
+      }
+
+      try {
+        const snapshot = JSON.parse(payload);
+        if (snapshot?.key) {
+          flagCache.set(snapshot.key, snapshot);
+        }
+      } catch (error) {
+        logger.warn("cache-entry-parse-failed", {
+          stateKey: stateKeys[index],
+          error: error.message
+        });
+      }
+    });
+
+    runtime.cacheHydrated = true;
+    runtime.lastCacheHydratedAt = new Date().toISOString();
+    log("cache-hydrated", {
+      cachedFlags: Array.from(flagCache.keys())
+    });
+  } catch (error) {
+    runtime.lastCacheHydrationError = error.message;
+    throw error;
+  }
 }
 
 async function ensureSubscriptionsRegistered() {
@@ -93,6 +124,42 @@ async function ensureSubscriptionsRegistered() {
   log("redis-subscriptions-registered", {
     channels: [config.updateChannel, config.rollbackChannel]
   });
+}
+
+function handleRedisMessage(channel, message) {
+  try {
+    const payload = JSON.parse(message);
+
+    if (channel === config.updateChannel) {
+      upsertFlag(payload, "redis-pubsub-update");
+      return;
+    }
+
+    if (channel === config.rollbackChannel) {
+      const rollbackKey = payload.flagKey || payload.key || config.flagKey;
+      const currentSnapshot = flagCache.get(rollbackKey);
+      if (currentSnapshot) {
+        flagCache.set(rollbackKey, {
+          ...currentSnapshot,
+          enabled: false,
+          reason: payload.reason || "rollback-received"
+        });
+      }
+
+      runtime.lastEventAt = new Date().toISOString();
+      log("rollback-event-received", {
+        channel,
+        flagKey: rollbackKey,
+        reason: payload.reason,
+        triggeredAt: payload.triggeredAt
+      });
+    }
+  } catch (error) {
+    logger.error("redis-message-processing-failed", {
+      channel,
+      error: error.message
+    });
+  }
 }
 
 function createRequestContext(request, response, next) {
@@ -114,16 +181,7 @@ function createRequestContext(request, response, next) {
 }
 
 function buildHealthPayload() {
-  return {
-    status: runtime.cacheHydrated ? "UP" : "STARTING",
-    trackedFlag: config.flagKey,
-    redisHealthy: runtime.redisCommandReady && runtime.redisSubscriberReady,
-    cacheHydrated: runtime.cacheHydrated,
-    cachedFlags: Array.from(flagCache.keys()),
-    lastCacheHydratedAt: runtime.lastCacheHydratedAt,
-    lastEventAt: runtime.lastEventAt,
-    startedAt: runtime.startedAt
-  };
+  return buildRuntimeHealthPayload(runtime, config, flagCache);
 }
 
 const proxy = createProxyMiddleware({
@@ -157,16 +215,26 @@ const proxy = createProxyMiddleware({
   }
 });
 
-app.use(createRequestContext);
+app.use((error, request, response, next) => {
+  if (error instanceof SyntaxError && "body" in error) {
+    return response.status(400).json({
+      error: "invalid_json",
+      message: "Request body must be valid JSON.",
+      requestId: request.requestId
+    });
+  }
+
+  return next(error);
+});
 
 app.get("/health", (request, response) => {
   response.json(buildHealthPayload());
 });
 
 app.get("/ready", (request, response) => {
-  const ready = runtime.cacheHydrated;
+  const ready = isReady(runtime);
   response.status(ready ? 200 : 503).json({
-    status: ready ? "READY" : "WAITING_FOR_SNAPSHOT",
+    status: ready ? "READY" : "WAITING_FOR_REDIS_OR_SNAPSHOT",
     ...buildHealthPayload()
   });
 });
@@ -234,11 +302,29 @@ app.use((request, response, next) => {
   return proxy(request, response, next);
 });
 
+app.use((error, request, response, next) => {
+  logger.error("unhandled-request-error", {
+    requestId: request.requestId,
+    path: request.originalUrl,
+    error: error.message
+  });
+
+  if (response.headersSent) {
+    return next(error);
+  }
+
+  return response.status(500).json({
+    error: "internal_error",
+    message: "The data plane could not complete the request.",
+    requestId: request.requestId
+  });
+});
+
 async function start() {
   redis.on("ready", () => {
     runtime.redisCommandReady = true;
     log("redis-command-connection-ready", { redisUrl: config.redisUrl });
-    if (!runtime.cacheHydrated || flagCache.size === 0) {
+    if (runtime.startupComplete) {
       hydrateCacheFromRedis().catch((error) => {
         logger.warn("background-cache-hydration-failed", { error: error.message });
       });
@@ -249,14 +335,22 @@ async function start() {
     runtime.redisCommandReady = false;
     logger.error("redis-command-connection-error", { error: error.message });
   });
+  redis.on("close", () => {
+    runtime.redisCommandReady = false;
+    logger.warn("redis-command-connection-closed");
+  });
+  redis.on("reconnecting", () => {
+    runtime.redisCommandReady = false;
+  });
+  redis.on("end", () => {
+    runtime.redisCommandReady = false;
+  });
 
   subscriber.on("ready", () => {
     runtime.redisSubscriberReady = true;
     log("redis-subscriber-ready", { redisUrl: config.redisUrl });
-    if (!runtime.subscriptionsRegistered) {
+    if (runtime.startupComplete && !runtime.subscriptionsRegistered) {
       ensureSubscriptionsRegistered()
-        .then(() => {
-        })
         .catch((error) => {
           logger.error("redis-subscribe-failed", { error: error.message });
         });
@@ -267,55 +361,25 @@ async function start() {
     runtime.redisSubscriberReady = false;
     logger.error("redis-subscriber-error", { error: error.message });
   });
-
-  try {
-    await hydrateCacheFromRedis();
-  } catch (error) {
-    logger.warn("initial-cache-hydration-failed", {
-      error: error.message
-    });
-  }
-
-  try {
-    subscriber.on("message", (channel, message) => {
-    try {
-      const payload = JSON.parse(message);
-
-      if (channel === config.updateChannel) {
-        upsertFlag(payload, "redis-pubsub-update");
-        return;
-      }
-
-      if (channel === config.rollbackChannel) {
-        const rollbackKey = payload.flagKey || payload.key || config.flagKey;
-        const currentSnapshot = flagCache.get(rollbackKey);
-        if (currentSnapshot) {
-          flagCache.set(rollbackKey, {
-            ...currentSnapshot,
-            enabled: false,
-            reason: payload.reason || "rollback-received"
-          });
-        }
-
-        runtime.lastEventAt = new Date().toISOString();
-        log("rollback-event-received", {
-          channel,
-          flagKey: rollbackKey,
-          reason: payload.reason,
-          triggeredAt: payload.triggeredAt
-        });
-      }
-    } catch (error) {
-      logger.error("redis-message-processing-failed", {
-        channel,
-        error: error.message
-      });
-    }
+  subscriber.on("close", () => {
+    runtime.redisSubscriberReady = false;
+    logger.warn("redis-subscriber-connection-closed");
   });
-    await ensureSubscriptionsRegistered();
-  } catch (error) {
-    logger.error("redis-subscribe-failed", { error: error.message });
-  }
+  subscriber.on("reconnecting", () => {
+    runtime.redisSubscriberReady = false;
+  });
+  subscriber.on("end", () => {
+    runtime.redisSubscriberReady = false;
+  });
+
+  subscriber.on("message", handleRedisMessage);
+
+  await Promise.all([redis.connect(), subscriber.connect()]);
+  runtime.redisCommandReady = redis.status === "ready";
+  runtime.redisSubscriberReady = subscriber.status === "ready";
+  await ensureSubscriptionsRegistered();
+  await hydrateCacheFromRedis();
+  runtime.startupComplete = true;
 
   const server = app.listen(config.port, () => {
     log("data-plane-started", {

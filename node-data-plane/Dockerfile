@@ -7,7 +7,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY server.js .
+COPY lib ./lib
 
 EXPOSE 8080
 
+USER node
 CMD ["npm", "start"]

@@ -7,6 +7,9 @@ function parseUserContext(rawHeader) {
   if (!candidate) {
     return {};
   }
+  if (candidate.length > 2048) {
+    throw new Error("User context header is too large.");
+  }
 
   if (candidate.startsWith("{")) {
     return JSON.parse(candidate);
@@ -17,9 +20,13 @@ function parseUserContext(rawHeader) {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .reduce((accumulator, entry) => {
-      const [key, value] = entry.split("=");
-      if (key && value) {
-        accumulator[key.trim()] = value.trim();
+      const separatorIndex = entry.indexOf("=");
+      if (separatorIndex > 0) {
+        const key = entry.slice(0, separatorIndex).trim();
+        const value = entry.slice(separatorIndex + 1).trim();
+        if (key && value) {
+          accumulator[key] = value;
+        }
       }
       return accumulator;
     }, {});
@@ -51,4 +58,3 @@ module.exports = {
   normalizeContext,
   maskContextForLogs
 };
-

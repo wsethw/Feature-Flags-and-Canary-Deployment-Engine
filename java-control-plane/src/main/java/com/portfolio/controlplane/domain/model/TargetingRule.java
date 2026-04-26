@@ -1,14 +1,16 @@
 package com.portfolio.controlplane.domain.model;
 
+import org.eclipse.jdt.annotation.NonNull;
+
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
 public record TargetingRule(
-        String attribute,
-        RuleOperator operator,
-        String value,
-        TargetVersion targetVersion
+        @NonNull String attribute,
+        @NonNull RuleOperator operator,
+        @NonNull String value,
+        @NonNull TargetVersion targetVersion
 ) {
 
     public TargetingRule {
@@ -37,7 +39,7 @@ public record TargetingRule(
         }
     }
 
-    public boolean matches(Map<String, String> context) {
+    public boolean matches(@NonNull Map<@NonNull String, @NonNull String> context) {
         String candidate = context.get(attribute);
         if (candidate == null || candidate.isBlank()) {
             return false;

@@ -6,6 +6,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import org.eclipse.jdt.annotation.NonNull;
+
+import java.util.Objects;
 
 @Embeddable
 public class TargetingRuleEmbeddable {
@@ -27,26 +30,35 @@ public class TargetingRuleEmbeddable {
     protected TargetingRuleEmbeddable() {
     }
 
-    public TargetingRuleEmbeddable(String attribute, RuleOperator operator, String value, TargetVersion targetVersion) {
-        this.attribute = attribute;
-        this.operator = operator;
-        this.value = value;
-        this.targetVersion = targetVersion;
+    public TargetingRuleEmbeddable(
+            @NonNull String attribute,
+            @NonNull RuleOperator operator,
+            @NonNull String value,
+            @NonNull TargetVersion targetVersion
+    ) {
+        this.attribute = Objects.requireNonNull(attribute, "Rule attribute must not be null");
+        this.operator = Objects.requireNonNull(operator, "Rule operator must not be null");
+        this.value = Objects.requireNonNull(value, "Rule value must not be null");
+        this.targetVersion = Objects.requireNonNull(targetVersion, "Rule target version must not be null");
     }
 
-    public String getAttribute() {
-        return attribute;
+    public @NonNull String getAttribute() {
+        return requireLoaded(attribute, "attribute");
     }
 
-    public RuleOperator getOperator() {
-        return operator;
+    public @NonNull RuleOperator getOperator() {
+        return requireLoaded(operator, "operator");
     }
 
-    public String getValue() {
-        return value;
+    public @NonNull String getValue() {
+        return requireLoaded(value, "value");
     }
 
-    public TargetVersion getTargetVersion() {
-        return targetVersion;
+    public @NonNull TargetVersion getTargetVersion() {
+        return requireLoaded(targetVersion, "targetVersion");
+    }
+
+    private static <T> @NonNull T requireLoaded(T value, String fieldName) {
+        return Objects.requireNonNull(value, "TargetingRuleEmbeddable." + fieldName + " must be loaded");
     }
 }
