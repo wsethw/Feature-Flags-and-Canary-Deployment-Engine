@@ -1,0 +1,68 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: java-control-plane
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/featureflags}
+    username: ${SPRING_DATASOURCE_USERNAME:featureflags}
+    password: ${SPRING_DATASOURCE_PASSWORD:featureflags}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+app:
+  admin:
+    api-token: ${APP_ADMIN_API_TOKEN:}
+  seed:
+    default-flag-id: ${APP_SEED_DEFAULT_FLAG_ID:11111111-1111-1111-1111-111111111111}
+    default-environment: ${APP_SEED_DEFAULT_ENVIRONMENT:production}
+    default-flag-enabled: ${APP_SEED_DEFAULT_FLAG_ENABLED:false}
+  integrations:
+    data-plane-base-url: ${APP_INTEGRATIONS_DATA_PLANE_BASE_URL:http://localhost:8080}
+    guardian-base-url: ${APP_INTEGRATIONS_GUARDIAN_BASE_URL:http://localhost:8083}
+    stable-base-url: ${APP_INTEGRATIONS_STABLE_BASE_URL:http://localhost:8084}
+    canary-base-url: ${APP_INTEGRATIONS_CANARY_BASE_URL:http://localhost:8085}
+  redis:
+    update-channel: ${APP_REDIS_UPDATE_CHANNEL:feature-flags:updates}
+    state-index-key: ${APP_REDIS_STATE_INDEX_KEY:feature-flags:index}
+    state-prefix: ${APP_REDIS_STATE_PREFIX:feature-flags:state:}
+
+logging:
+  level:
+    com.portfolio.controlplane: INFO
+  pattern:
+    level: "%5p [req:%X{requestId:-n/a}]"

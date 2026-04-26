@@ -1,0 +1,177 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: featureflags
+      POSTGRES_USER: featureflags
+      POSTGRES_PASSWORD: featureflags
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U featureflags -d featureflags"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - traffic-net
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - traffic-net
+
+  java-control-plane:
+    build:
+      context: ./java-control-plane
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/featureflags
+      SPRING_DATASOURCE_USERNAME: featureflags
+      SPRING_DATASOURCE_PASSWORD: featureflags
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      APP_ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+      APP_SEED_DEFAULT_FLAG_ID: 11111111-1111-1111-1111-111111111111
+      APP_SEED_DEFAULT_ENVIRONMENT: production
+      APP_SEED_DEFAULT_FLAG_ENABLED: "false"
+      APP_INTEGRATIONS_DATA_PLANE_BASE_URL: http://node-data-plane:8080
+      APP_INTEGRATIONS_GUARDIAN_BASE_URL: http://dotnet-guardian:8080
+      APP_INTEGRATIONS_STABLE_BASE_URL: http://app-stable:8080
+      APP_INTEGRATIONS_CANARY_BASE_URL: http://app-canary:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health/readiness > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - traffic-net
+
+  app-stable:
+    build:
+      context: ./app-stable
+    restart: unless-stopped
+    environment:
+      VERSION_LABEL: stable
+      CHECKOUT_FLOW: old flow
+      SIMULATION_ADMIN_TOKEN: ${ADMIN_API_TOKEN:-}
+    ports:
+      - "8084:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready > /dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - traffic-net
+
+  app-canary:
+    build:
+      context: ./app-canary
+    restart: unless-stopped
+    environment:
+      VERSION_LABEL: canary
+      CHECKOUT_FLOW: new amazing flow
+      SIMULATION_ADMIN_TOKEN: ${ADMIN_API_TOKEN:-}
+    ports:
+      - "8085:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready > /dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - traffic-net
+
+  node-data-plane:
+    build:
+      context: ./node-data-plane
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      REDIS_URL: redis://redis:6379
+      UPDATE_CHANNEL: feature-flags:updates
+      ROLLBACK_CHANNEL: feature-flags:rollback
+      REDIS_STATE_INDEX_KEY: feature-flags:index
+      STABLE_TARGET: http://app-stable:8080
+      CANARY_TARGET: http://app-canary:8080
+      FLAG_KEY: new-checkout
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      java-control-plane:
+        condition: service_healthy
+      app-stable:
+        condition: service_healthy
+      app-canary:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - traffic-net
+
+  dotnet-guardian:
+    build:
+      context: ./dotnet-guardian
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Redis: redis:6379
+      Guardian__StableHealthUrl: http://app-stable:8080/health
+      Guardian__CanaryHealthUrl: http://app-canary:8080/health
+      Guardian__ControlPlaneBaseUrl: http://java-control-plane:8080
+      Guardian__FlagId: 11111111-1111-1111-1111-111111111111
+      Guardian__FlagKey: new-checkout
+      Guardian__RollbackChannel: feature-flags:rollback
+      Guardian__AdminApiToken: ${ADMIN_API_TOKEN:-}
+      Guardian__ProbeIntervalSeconds: 10
+      Guardian__CanaryFailureThreshold: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+      java-control-plane:
+        condition: service_healthy
+      app-stable:
+        condition: service_healthy
+      app-canary:
+        condition: service_healthy
+    ports:
+      - "8083:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ready > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - traffic-net
+
+networks:
+  traffic-net:
+    driver: bridge
+
+volumes:
+  postgres-data:

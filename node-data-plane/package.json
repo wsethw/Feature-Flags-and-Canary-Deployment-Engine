@@ -1,0 +1,16 @@
+{
+  "name": "node-data-plane",
+  "version": "1.0.0",
+  "description": "Edge proxy with feature flag evaluation on the data plane",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "4.22.1",
+    "http-proxy-middleware": "3.0.5",
+    "ioredis": "5.4.2"
+  }
+}

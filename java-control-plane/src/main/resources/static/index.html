@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Plane Console</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<div class="shell">
+    <header class="topbar">
+        <div>
+            <p class="eyebrow">Premium Delivery Control Plane</p>
+            <h1>Feature Flags &amp; Canary Operations Console</h1>
+            <p class="subtitle">
+                Operate releases with contextual traffic shaping, instant visibility and autonomous rollback posture.
+            </p>
+        </div>
+        <div class="topbar-actions">
+            <button id="refreshButton" class="button button-secondary" type="button">Refresh</button>
+            <span id="securityBadge" class="pill pill-muted">Open access mode</span>
+        </div>
+    </header>
+
+    <section id="authPanel" class="panel auth-panel hidden" aria-live="polite">
+        <div>
+            <h2>Protected Admin Surface</h2>
+            <p>Provide the admin token to unlock operational actions and internal diagnostics.</p>
+        </div>
+        <form id="authForm" class="auth-form">
+            <label class="field">
+                <span>Admin token</span>
+                <input id="adminTokenInput" name="adminToken" type="password" autocomplete="off" placeholder="Paste admin token">
+            </label>
+            <button class="button" type="submit">Unlock Console</button>
+        </form>
+    </section>
+
+    <main class="layout">
+        <section class="hero-card panel">
+            <div class="hero-copy">
+                <p class="eyebrow">Release posture</p>
+                <h2>Operate deploy and release as separate control loops</h2>
+                <p>
+                    The console below blends control plane state, data plane routing health and guardian telemetry into
+                    one operational surface. It is designed for live demos and for real troubleshooting pressure.
+                </p>
+            </div>
+            <div class="hero-metrics">
+                <article class="metric">
+                    <span>Total flags</span>
+                    <strong id="metricFlagCount">--</strong>
+                </article>
+                <article class="metric">
+                    <span>Canary failures</span>
+                    <strong id="metricCanaryFailures">--</strong>
+                </article>
+                <article class="metric">
+                    <span>Latest routing</span>
+                    <strong id="metricPreviewTarget">--</strong>
+                </article>
+            </div>
+        </section>
+
+        <section class="overview-grid" id="overviewGrid" aria-live="polite">
+            <article class="status-card skeleton"></article>
+            <article class="status-card skeleton"></article>
+            <article class="status-card skeleton"></article>
+            <article class="status-card skeleton"></article>
+            <article class="status-card skeleton"></article>
+        </section>
+
+        <section class="content-grid">
+            <section class="panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Control surface</p>
+                        <h2>Feature flags</h2>
+                    </div>
+                    <span id="flagsCaption" class="section-caption">Loading current release topology...</span>
+                </div>
+                <div id="flagsList" class="flags-grid" aria-live="polite"></div>
+            </section>
+
+            <section class="panel stack">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Release actions</p>
+                        <h2>Operate safely</h2>
+                    </div>
+                </div>
+
+                <form id="createFlagForm" class="form-card">
+                    <div class="form-card-header">
+                        <h3>Create feature flag</h3>
+                        <p>Provision a new release toggle without shipping code again.</p>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Key</span>
+                            <input name="key" type="text" placeholder="payments-risk-review" required>
+                        </label>
+                        <label class="field">
+                            <span>Environment</span>
+                            <input name="environmentName" type="text" value="production" required>
+                        </label>
+                        <label class="field field-full">
+                            <span>Description</span>
+                            <input name="description" type="text" placeholder="Explains the business intent" required>
+                        </label>
+                    </div>
+                    <label class="checkbox">
+                        <input name="enabled" type="checkbox">
+                        <span>Start enabled</span>
+                    </label>
+                    <button class="button" type="submit">Create flag</button>
+                </form>
+
+                <form id="ruleForm" class="form-card">
+                    <div class="form-card-header">
+                        <h3>Add targeting rule</h3>
+                        <p>Shape traffic by country, platform and percentage buckets.</p>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Flag</span>
+                            <select id="ruleFlagId" name="flagId" required></select>
+                        </label>
+                        <label class="field">
+                            <span>Attribute</span>
+                            <select name="attribute" required>
+                                <option value="country">country</option>
+                                <option value="platform">platform</option>
+                                <option value="userId">userId</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Operator</span>
+                            <select name="operator" required>
+                                <option value="EQUALS">EQUALS</option>
+                                <option value="IN">IN</option>
+                                <option value="PERCENTAGE">PERCENTAGE</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Value</span>
+                            <input name="value" type="text" placeholder="BR or 10" required>
+                        </label>
+                        <label class="field">
+                            <span>Target version</span>
+                            <select name="targetVersion" required>
+                                <option value="CANARY">CANARY</option>
+                                <option value="STABLE">STABLE</option>
+                            </select>
+                        </label>
+                    </div>
+                    <button class="button button-secondary" type="submit">Add rule</button>
+                </form>
+
+                <form id="previewForm" class="form-card">
+                    <div class="form-card-header">
+                        <h3>Traffic preview lab</h3>
+                        <p>Preview the exact edge decision before it reaches a real user.</p>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>User ID</span>
+                            <input name="userId" type="text" value="7" required>
+                        </label>
+                        <label class="field">
+                            <span>Country</span>
+                            <input name="country" type="text" value="BR" required>
+                        </label>
+                        <label class="field">
+                            <span>Platform</span>
+                            <input name="platform" type="text" value="iOS" required>
+                        </label>
+                    </div>
+                    <button class="button button-secondary" type="submit">Preview routing</button>
+                    <div id="previewResult" class="preview-result muted">No preview executed yet.</div>
+                </form>
+            </section>
+        </section>
+
+        <section class="content-grid">
+            <section class="panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Guardian telemetry</p>
+                        <h2>Rollback journal</h2>
+                    </div>
+                    <span class="section-caption">Autonomous protection state from the .NET guardian.</span>
+                </div>
+                <div id="guardianPanel" class="telemetry-panel muted">Telemetry is loading...</div>
+            </section>
+
+            <section class="panel">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">Operational guidance</p>
+                        <h2>Demo script</h2>
+                    </div>
+                </div>
+                <ol class="playbook">
+                    <li>Enable `new-checkout` to release canary traffic without redeploying.</li>
+                    <li>Use the preview lab with `userId=7`, `country=BR`, `platform=iOS` to prove canary routing.</li>
+                    <li>Trigger `app-canary` health failure and watch the guardian record a rollback.</li>
+                    <li>Refresh the console to confirm traffic returned to `STABLE` automatically.</li>
+                </ol>
+            </section>
+        </section>
+    </main>
+</div>
+
+<div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+
+<script src="/assets/app.js" defer></script>
+</body>
+</html>
+
