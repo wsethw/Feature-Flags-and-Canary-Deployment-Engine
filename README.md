@@ -395,15 +395,3 @@ The following improvements are planned for subsequent iterations:
 ## License
 
 MIT License. See [LICENSE](LICENSE) file for details.
-
----
-
-## Purpose
-
-This project was developed to demonstrate:
-
-- Decoupling between deployment and release using feature flags and canary releases.
-- Low‑latency, edge‑based contextual targeting without database round‑trips.
-- Autonomous, telemetry‑driven rollback isolated from the delivery domain.
-- Polyglot microservices architecture with clear separation of concerns.
-- Production‑grade patterns (idempotency, health checks, fallback caching, operational dashboards).
